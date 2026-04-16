@@ -30,6 +30,7 @@ def get_dummy_image(value=0):
     return img
 
 
+# Retrieves the actual frame number from the filename to match the stereo pairs
 def get_frame_token(filename):
     stem, _ = os.path.splitext(filename)
     match = re.search(r"(\d+)$", stem)
@@ -37,7 +38,7 @@ def get_frame_token(filename):
         return match.group(1)
     return stem
 
-
+# Sorts the frame numbers
 def sort_frame_tokens(tokens):
     def sort_key(token):
         if token.isdigit():
@@ -46,7 +47,7 @@ def sort_frame_tokens(tokens):
 
     return sorted(tokens, key=sort_key)
 
-
+# Decided to build a map of the frame numbers and image paths e.g { "0001": "left_image/frame_0001.png", ... } 
 def build_image_map(folder_path):
     image_map = {}
 
@@ -80,7 +81,7 @@ def get_timestamp(frame_num):
         return 0.0
     return frame_num / FPS
 
-
+# Replay navigation function, translates commands like “latest,” “previous 2,” or “frame 3” into the actual index of the left/right image pair in the cache
 def resolve_frame_index(command, shared_tokens):
     global CURRENT_INDEX
 
