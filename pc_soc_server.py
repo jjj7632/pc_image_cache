@@ -1,18 +1,39 @@
 #!/usr/bin/env python3
 
-from numpysocket import NumpySocket
-from soc_protocol import *
-from cache_manager import get_frame
-import numpy as np
+import os
+import sys
 
-IMAGE_SHAPE = (480, 640, 3)   # MUST match your cache_manager
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
+from shared_protocol.numpysocket import NumpySocket
+from shared_protocol.soc_protocol import *
+from pc_cache_manager import get_frame
+
+IMAGE_SHAPE = (1080, 1920, 3)   # MUST match pc_cache_manager
 PORT = 9999
+
+
+class FakeFpgaCache:
+    def submit_frame(self, frame_number, image_data):
+        pass
+
+    def read_result(self):
+        return {"x": 0.0, "y": 0.0, "z": 0.0}
 
 
 class PCSoCServer:
     def __init__(self):
         self.sock = NumpySocket(image_shape=IMAGE_SHAPE)
-        self.protocol = SoCProtocol(command_sender=self.send_command)
+        self.protocol = SoCProtocol(
+            command_sender=self.send_command,
+            fpga_cache=FakeFpgaCache()
+        )
 
     # -------- SEND COMMAND TO MATLAB --------
     def send_command(self, cmd_array):
@@ -26,10 +47,20 @@ class PCSoCServer:
             self.sock.sendFloat32(cmd_array[3])
             self.sock.sendFloat32(cmd_array[4])
 
+        elif cmd in [
+            CMD_REQUEST_NTH_PREVIOUS_IMAGE,
+            CMD_REQUEST_NTH_NEXT_IMAGE,
+            CMD_REQUEST_IMAGE_AT_FRAME,
+        ]:
+            self.sock.sendInt32(cmd_array[1])
+
         elif cmd == CMD_SEND_CALL:
             self.sock.sendUint8(cmd_array[1])
 
         elif cmd == CMD_SLAVE_MODE_READY:
+            pass
+
+        elif cmd == CMD_STOP_CAPTURE:
             pass
 
     # -------- HANDLE MATLAB REQUEST --------
@@ -41,6 +72,10 @@ class PCSoCServer:
             offset = self.sock.receiveInt32()
             frame_data = get_frame([11, offset])
 
+        elif cmd == CMD_REQUEST_NTH_NEXT_IMAGE:
+            offset = self.sock.receiveInt32()
+            frame_data = get_frame([12, offset])
+
         elif cmd == CMD_REQUEST_IMAGE_AT_FRAME:
             frame_num = self.sock.receiveInt32()
             frame_data = get_frame([15, frame_num])
@@ -49,13 +84,19 @@ class PCSoCServer:
             print("Unknown request:", cmd)
             return
 
-        frame_number = frame_data["frame"]
-        image = frame_data["image"]
+        if frame_data is None:
+            print("No frame available for request:", cmd)
+            return
 
-        # Send image back to MATLAB
+        frame_number = frame_data["frame"]
+        left_image = frame_data["left_image"]
+        right_image = frame_data["right_image"]
+
+        # Send stereo image back to MATLAB
         self.sock.sendCmd(CMD_PROCESS_IMAGE)
         self.sock.sendInt32(frame_number)
-        self.sock.send(image)
+        self.sock.send(left_image)
+        self.sock.send(right_image)
 
     # -------- MAIN LOOP --------
     def run(self):
@@ -66,6 +107,7 @@ class PCSoCServer:
 
         while True:
             try:
+                self.protocol.drive()
                 cmd = self.sock.receiveCmd()
                 if cmd is None:
                     break
@@ -76,17 +118,22 @@ class PCSoCServer:
                 if cmd in [
                     CMD_REQUEST_LATEST_IMAGE,
                     CMD_REQUEST_NTH_PREVIOUS_IMAGE,
+                    CMD_REQUEST_NTH_NEXT_IMAGE,
                     CMD_REQUEST_IMAGE_AT_FRAME
                 ]:
                     self.handle_matlab_request(cmd)
 
-                # MATLAB sending image (rare case)
+                # MATLAB sending image 
                 elif cmd == CMD_PROCESS_IMAGE:
                     frame_number = self.sock.receiveInt32()
-                    image = self.sock.receive()
+                    left_image = self.sock.receive()
+                    right_image = self.sock.receive()
 
                     result = self.protocol.handle_incoming_command(
-                        [CMD_PROCESS_IMAGE, frame_number, image]
+                        [CMD_PROCESS_IMAGE, frame_number, {
+                            "left_image": left_image,
+                            "right_image": right_image
+                        }]
                     )
 
                     print("[RESULT]", result)
@@ -110,4 +157,3 @@ class PCSoCServer:
 if __name__ == "__main__":
     server = PCSoCServer()
     server.run()
-

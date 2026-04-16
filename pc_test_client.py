@@ -1,41 +1,49 @@
-import socket
-import json
-import struct
-import numpy as np
-import cv2
+import os
+import sys
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
+from shared_protocol.numpysocket import NumpySocket
+from shared_protocol.image_cache import create_dummy_image
+from shared_protocol.soc_protocol import CMD_LOG_DATA, CMD_PROCESS_IMAGE, CMD_REQUEST_LATEST_IMAGE
 
 HOST = "127.0.0.1"
 PORT = 9999
+IMAGE_SHAPE = (1080, 1920, 3)
 
-def send_cmd(cmd):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect((HOST, PORT))
 
-        msg = json.dumps(cmd).encode()
-        s.sendall(struct.pack(">I", len(msg)) + msg)
+def main():
+    sock = NumpySocket(image_shape=IMAGE_SHAPE)
+    sock.start_client(HOST, PORT)
 
-        raw_len = s.recv(4)
-        msg_len = struct.unpack(">I", raw_len)[0]
+    left_image = create_dummy_image(IMAGE_SHAPE[1], IMAGE_SHAPE[0], 120, channels=IMAGE_SHAPE[2])
+    right_image = create_dummy_image(IMAGE_SHAPE[1], IMAGE_SHAPE[0], 125, channels=IMAGE_SHAPE[2])
 
-        data = b''
-        while len(data) < msg_len:
-            data += s.recv(4096)
+    cmd = sock.receiveCmd()
+    if cmd == CMD_REQUEST_LATEST_IMAGE:
+        sock.sendCmd(CMD_PROCESS_IMAGE)
+        sock.sendInt32(7)
+        sock.send(left_image)
+        sock.send(right_image)
+    else:
+        print("Received unexpected command:", cmd)
+        sock.close()
+        return
 
-        return json.loads(data.decode())
+    cmd = sock.receiveCmd()
+    if cmd == CMD_LOG_DATA:
+        frame_number = sock.receiveInt32()
+        x_pos = sock.receiveFloat32()
+        y_pos = sock.receiveFloat32()
+        z_pos = sock.receiveFloat32()
+        print([cmd, frame_number, x_pos, y_pos, z_pos])
+    else:
+        print("Received unexpected command:", cmd)
 
-def decode_and_show(resp):
-    img_bytes = bytes.fromhex(resp["image"])
-    img_array = np.frombuffer(img_bytes, dtype=np.uint8)
-    img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+    sock.close()
 
-    cv2.imshow("Frame", img)
-    cv2.waitKey(0)
 
-# -------- TESTS --------
-resp = send_cmd([10])
-print(resp)
-decode_and_show(resp)
-
-send_cmd([98])  # switch mode
-send_cmd([1])   # reset
-
+if __name__ == "__main__":
+    main()
