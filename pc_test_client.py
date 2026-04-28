@@ -24,7 +24,7 @@ def main():
     cmd = sock.receiveCmd()
     if cmd == CMD_REQUEST_LATEST_IMAGE:
         sock.sendCmd(CMD_PROCESS_IMAGE)
-        sock.sendInt32(7)
+        sock.sendUint32(7)
         sock.send(left_image)
         sock.send(right_image)
     else:
@@ -34,7 +34,7 @@ def main():
 
     cmd = sock.receiveCmd()
     if cmd == CMD_LOG_DATA:
-        frame_number = sock.receiveInt32()
+        frame_number = sock.receiveUint32()
         x_pos = sock.receiveFloat32()
         y_pos = sock.receiveFloat32()
         z_pos = sock.receiveFloat32()

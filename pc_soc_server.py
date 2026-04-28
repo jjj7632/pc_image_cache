@@ -42,7 +42,8 @@ class PCSoCServer:
         self.sock.sendCmd(cmd)
 
         if cmd == CMD_LOG_DATA:
-            self.sock.sendInt32(cmd_array[1])
+            frame_number = int(cmd_array[1])
+            self.sock.sendUint32(frame_number)
             self.sock.sendFloat32(cmd_array[2])
             self.sock.sendFloat32(cmd_array[3])
             self.sock.sendFloat32(cmd_array[4])
@@ -50,9 +51,12 @@ class PCSoCServer:
         elif cmd in [
             CMD_REQUEST_NTH_PREVIOUS_IMAGE,
             CMD_REQUEST_NTH_NEXT_IMAGE,
-            CMD_REQUEST_IMAGE_AT_FRAME,
         ]:
             self.sock.sendInt32(cmd_array[1])
+
+        elif cmd == CMD_REQUEST_IMAGE_AT_FRAME:
+            frame_number = UNKNOWN_FRAME_NUMBER if cmd_array[1] is None else int(cmd_array[1])
+            self.sock.sendUint32(frame_number)
 
         elif cmd == CMD_SEND_CALL:
             self.sock.sendUint8(cmd_array[1])
@@ -77,7 +81,9 @@ class PCSoCServer:
             frame_data = get_frame([12, offset])
 
         elif cmd == CMD_REQUEST_IMAGE_AT_FRAME:
-            frame_num = self.sock.receiveInt32()
+            frame_num = self.sock.receiveUint32()
+            if frame_num == UNKNOWN_FRAME_NUMBER:
+                frame_num = None
             frame_data = get_frame([15, frame_num])
 
         else:
@@ -94,7 +100,7 @@ class PCSoCServer:
 
         # Send stereo image back to MATLAB
         self.sock.sendCmd(CMD_PROCESS_IMAGE)
-        self.sock.sendInt32(frame_number)
+        self.sock.sendUint32(frame_number)
         self.sock.send(left_image)
         self.sock.send(right_image)
 
@@ -125,7 +131,9 @@ class PCSoCServer:
 
                 # MATLAB sending image 
                 elif cmd == CMD_PROCESS_IMAGE:
-                    frame_number = self.sock.receiveInt32()
+                    frame_number = self.sock.receiveUint32()
+                    if frame_number == UNKNOWN_FRAME_NUMBER:
+                        frame_number = None
                     left_image = self.sock.receive()
                     right_image = self.sock.receive()
 
